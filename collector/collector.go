@@ -35,12 +35,14 @@ var (
 )
 
 type Exporter struct {
-	URI           string
-	hostOverride  string
-	customHeaders map[string]string
-	mutex         sync.Mutex
-	client        *http.Client
-	userAgent     string
+	URI                 string
+	hostOverride        string
+	customHeaders       map[string]string
+	customLabels        map[string]string
+	customHeadersLabels map[string]string
+	mutex               sync.Mutex
+	client              *http.Client
+	userAgent           string
 
 	up                    *prometheus.Desc
 	scrapeFailures        prometheus.Counter
@@ -67,27 +69,37 @@ type Exporter struct {
 }
 
 type Config struct {
-	ScrapeURI     string
-	HostOverride  string
-	Insecure      bool
-	CustomHeaders map[string]string
+	ScrapeURI           string
+	HostOverride        string
+	Insecure            bool
+	CustomHeaders       map[string]string
+	CustomLabels        map[string]string
+	CustomHeadersLabels map[string]string
 }
 
 func NewExporter(logger *slog.Logger, config *Config) *Exporter {
+	labelKeys := make([]string, 0, len(config.CustomHeadersLabels))
+	for k := range config.CustomHeadersLabels {
+		labelKeys = append(labelKeys, k)
+	}
+	constLabels := prometheus.Labels(config.CustomLabels)
+
 	return &Exporter{
-		URI:           config.ScrapeURI,
-		hostOverride:  config.HostOverride,
-		customHeaders: config.CustomHeaders,
-		logger:        logger,
+		URI:                 config.ScrapeURI,
+		hostOverride:        config.HostOverride,
+		customHeaders:       config.CustomHeaders,
+		customHeadersLabels: config.CustomHeadersLabels,
+		logger:              logger,
 		up: prometheus.NewDesc(
 			prometheus.BuildFQName(namespace, "", "up"),
 			"Could the apache server be reached",
 			nil,
 			nil),
 		scrapeFailures: prometheus.NewCounter(prometheus.CounterOpts{
-			Namespace: namespace,
-			Name:      "exporter_scrape_failures_total",
-			Help:      "Number of errors while scraping apache.",
+			Namespace:   namespace,
+			Name:        "exporter_scrape_failures_total",
+			Help:        "Number of errors while scraping apache.",
+			ConstLabels: constLabels,
 		}),
 		apacheVersion: prometheus.NewDesc(
 			prometheus.BuildFQName(namespace, "", "version"),
@@ -95,25 +107,28 @@ func NewExporter(logger *slog.Logger, config *Config) *Exporter {
 			nil,
 			nil),
 		apacheInfo: prometheus.NewGaugeVec(prometheus.GaugeOpts{
-			Namespace: namespace,
-			Name:      "info",
-			Help:      "Apache version information",
+			Namespace:   namespace,
+			Name:        "info",
+			Help:        "Apache version information",
+			ConstLabels: constLabels,
 		},
 			[]string{"version", "mpm"},
 		),
 		generation: prometheus.NewGaugeVec(prometheus.GaugeOpts{
-			Namespace: namespace,
-			Name:      "generation",
-			Help:      "Apache restart generation",
+			Namespace:   namespace,
+			Name:        "generation",
+			Help:        "Apache restart generation",
+			ConstLabels: constLabels,
 		},
 			[]string{"type"},
 		),
 		load: prometheus.NewGaugeVec(prometheus.GaugeOpts{
-			Namespace: namespace,
-			Name:      "load",
-			Help:      "Apache server load",
+			Namespace:   namespace,
+			Name:        "load",
+			Help:        "Apache server load",
+			ConstLabels: constLabels,
 		},
-			[]string{"interval"},
+			append([]string{"interval"}, labelKeys...),
 		),
 		accessesTotal: prometheus.NewDesc(
 			prometheus.BuildFQName(namespace, "", "accesses_total"),
@@ -136,9 +151,10 @@ func NewExporter(logger *slog.Logger, config *Config) *Exporter {
 			[]string{"type"}, nil,
 		),
 		cpuload: prometheus.NewGauge(prometheus.GaugeOpts{
-			Namespace: namespace,
-			Name:      "cpuload",
-			Help:      "The current percentage CPU used by each worker and in total by all workers combined (*)",
+			Namespace:   namespace,
+			Name:        "cpuload",
+			Help:        "The current percentage CPU used by each worker and in total by all workers combined (*)",
+			ConstLabels: constLabels,
 		}),
 		uptime: prometheus.NewDesc(
 			prometheus.BuildFQName(namespace, "", "uptime_seconds_total"),
@@ -146,37 +162,42 @@ func NewExporter(logger *slog.Logger, config *Config) *Exporter {
 			nil,
 			nil),
 		workers: prometheus.NewGaugeVec(prometheus.GaugeOpts{
-			Namespace: namespace,
-			Name:      "workers",
-			Help:      "Apache worker statuses",
+			Namespace:   namespace,
+			Name:        "workers",
+			Help:        "Apache worker statuses",
+			ConstLabels: constLabels,
 		},
-			[]string{"state"},
+			append([]string{"state"}, labelKeys...),
 		),
 		processes: prometheus.NewGaugeVec(prometheus.GaugeOpts{
-			Namespace: namespace,
-			Name:      "processes",
-			Help:      "Apache process count",
+			Namespace:   namespace,
+			Name:        "processes",
+			Help:        "Apache process count",
+			ConstLabels: constLabels,
 		},
 			[]string{"state"},
 		),
 		connections: prometheus.NewGaugeVec(prometheus.GaugeOpts{
-			Namespace: namespace,
-			Name:      "connections",
-			Help:      "Apache connection statuses",
+			Namespace:   namespace,
+			Name:        "connections",
+			Help:        "Apache connection statuses",
+			ConstLabels: constLabels,
 		},
 			[]string{"state"},
 		),
 		scoreboard: prometheus.NewGaugeVec(prometheus.GaugeOpts{
-			Namespace: namespace,
-			Name:      "scoreboard",
-			Help:      "Apache scoreboard statuses",
+			Namespace:   namespace,
+			Name:        "scoreboard",
+			Help:        "Apache scoreboard statuses",
+			ConstLabels: constLabels,
 		},
 			[]string{"state"},
 		),
 		proxyBalancerStatus: prometheus.NewGaugeVec(prometheus.GaugeOpts{
-			Namespace: namespace,
-			Name:      "proxy_balancer_status",
-			Help:      "Apache Proxy Balancer Statuses",
+			Namespace:   namespace,
+			Name:        "proxy_balancer_status",
+			Help:        "Apache Proxy Balancer Statuses",
+			ConstLabels: constLabels,
 		},
 			[]string{"balancer", "worker", "status"},
 		),
@@ -186,9 +207,10 @@ func NewExporter(logger *slog.Logger, config *Config) *Exporter {
 			[]string{"balancer", "worker"}, nil,
 		),
 		proxyBalancerBusy: prometheus.NewGaugeVec(prometheus.GaugeOpts{
-			Namespace: namespace,
-			Name:      "proxy_balancer_busy",
-			Help:      "Apache Proxy Balancer Active Requests",
+			Namespace:   namespace,
+			Name:        "proxy_balancer_busy",
+			Help:        "Apache Proxy Balancer Active Requests",
+			ConstLabels: constLabels,
 		},
 			[]string{"balancer", "worker"},
 		),
@@ -312,6 +334,15 @@ func (e *Exporter) collect(ch chan<- prometheus.Metric) error {
 		return fmt.Errorf("status %s (%d): %s", resp.Status, resp.StatusCode, data)
 	}
 
+	additionalLabels := make([]string, 0, len(e.customHeadersLabels))
+	for _, header_k := range e.customHeadersLabels {
+		headerValue := resp.Header.Get(header_k)
+		if headerValue == "" {
+			headerValue = "unknown"
+		}
+		additionalLabels = append(additionalLabels, headerValue)
+	}
+
 	connectionInfo := false
 	version := "UNKNOWN"
 	mpm := "UNKNOWN"
@@ -363,19 +394,19 @@ func (e *Exporter) collect(ch chan<- prometheus.Metric) error {
 			if err != nil {
 				return err
 			}
-			e.load.WithLabelValues("1min").Set(val)
+			e.load.WithLabelValues(append([]string{"1min"}, additionalLabels...)...).Set(val)
 		case key == "Load5":
 			val, err := strconv.ParseFloat(v, 64)
 			if err != nil {
 				return err
 			}
-			e.load.WithLabelValues("5min").Set(val)
+			e.load.WithLabelValues(append([]string{"5min"}, additionalLabels...)...).Set(val)
 		case key == "Load15":
 			val, err := strconv.ParseFloat(v, 64)
 			if err != nil {
 				return err
 			}
-			e.load.WithLabelValues("15min").Set(val)
+			e.load.WithLabelValues(append([]string{"15min"}, additionalLabels...)...).Set(val)
 		case key == "Total Accesses":
 			val, err := strconv.ParseFloat(v, 64)
 			if err != nil {
@@ -443,13 +474,13 @@ func (e *Exporter) collect(ch chan<- prometheus.Metric) error {
 			if err != nil {
 				return err
 			}
-			e.workers.WithLabelValues("busy").Set(val)
+			e.workers.WithLabelValues(append([]string{"busy"}, additionalLabels...)...).Set(val)
 		case key == "IdleWorkers":
 			val, err := strconv.ParseFloat(v, 64)
 			if err != nil {
 				return err
 			}
-			e.workers.WithLabelValues("idle").Set(val)
+			e.workers.WithLabelValues(append([]string{"idle"}, additionalLabels...)...).Set(val)
 		case key == "Processes":
 			val, err := strconv.ParseFloat(v, 64)
 			if err != nil {

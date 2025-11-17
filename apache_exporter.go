@@ -28,13 +28,15 @@ import (
 )
 
 var (
-	metricsEndpoint = kingpin.Flag("telemetry.endpoint", "Path under which to expose metrics.").Default("/metrics").String()
-	scrapeURI       = kingpin.Flag("scrape_uri", "URI to apache stub status page.").Default("http://localhost/server-status?auto").String()
-	hostOverride    = kingpin.Flag("host_override", "Override for HTTP Host header; empty string for no override.").Default("").String()
-	insecure        = kingpin.Flag("insecure", "Ignore server certificate if using https.").Bool()
-	toolkitFlags    = kingpinflag.AddFlags(kingpin.CommandLine, ":9117")
-	gracefulStop    = make(chan os.Signal, 1)
-	customHeaders   = kingpin.Flag("custom_headers", "Adds custom headers to the collector.").StringMap()
+	metricsEndpoint     = kingpin.Flag("telemetry.endpoint", "Path under which to expose metrics.").Default("/metrics").String()
+	scrapeURI           = kingpin.Flag("scrape_uri", "URI to apache stub status page.").Default("http://localhost/server-status?auto").String()
+	hostOverride        = kingpin.Flag("host_override", "Override for HTTP Host header; empty string for no override.").Default("").String()
+	insecure            = kingpin.Flag("insecure", "Ignore server certificate if using https.").Bool()
+	customLabels        = kingpin.Flag("custom_labels", "Add custom labels to all prometheus metrics").StringMap()
+	customHeadersLabels = kingpin.Flag("custom_headers_labels", "Add custom labels to apache prometheus metrics from apache response headers").StringMap()
+	toolkitFlags        = kingpinflag.AddFlags(kingpin.CommandLine, ":9117")
+	gracefulStop        = make(chan os.Signal, 1)
+	customHeaders       = kingpin.Flag("custom_headers", "Adds custom headers to the collector.").StringMap()
 )
 
 func main() {
@@ -53,10 +55,12 @@ func main() {
 	signal.Notify(gracefulStop, syscall.SIGQUIT)
 
 	config := &collector.Config{
-		ScrapeURI:     *scrapeURI,
-		HostOverride:  *hostOverride,
-		Insecure:      *insecure,
-		CustomHeaders: *customHeaders,
+		ScrapeURI:           *scrapeURI,
+		HostOverride:        *hostOverride,
+		Insecure:            *insecure,
+		CustomHeaders:       *customHeaders,
+		CustomHeadersLabels: *customHeadersLabels,
+		CustomLabels:        *customLabels,
 	}
 
 	exporter := collector.NewExporter(logger, config)
